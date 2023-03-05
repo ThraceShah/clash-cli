@@ -1,0 +1,95 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+            ],
+            "presentation": {
+                "reveal": "silent"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "publish",
+            "type": "shell",
+            "command": "msbuild",
+            "args": [
+                "${workspaceFolder}/MyService/Myservice.csproj",
+                "/p:Configuration=Debug",
+                "/t:ResolveReferences",
+                "/t:Compile",
+                "/t:_CopyWebApplication",
+                "/p:WebProjectOutputDir=${workspaceFolder}/MyService/obj/Release/Package/PackageTmp",
+                "/p:OutputPath=${workspaceFolder}/MyService/obj/Debug/Package/PackageTmp"
+            ],
+            "presentation": {
+                "reveal": "silent"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "iisStart",
+            "type": "shell",
+            "dependsOn": "msbuild",
+            "command": "Start-Process",
+            "args": [
+                "iisexpress",
+                "/siteid:2"
+            ],
+            "presentation": {
+                "reveal": "silent",
+            }
+        },
+        {
+            "label": "iisStop",
+            "type": "shell",
+            "command": "Stop-Process",
+            "args": [
+                "-Name",
+                "iisexpress"
+            ]
+        },
+        {
+            "label": "startChromeDebug",
+            "type": "shell",
+            "command": "chrome",
+            "dependsOn": "iisStart",
+            "args": [
+                "https://localhost:44315/",
+                "--remote-debugging-port=9222"
+            ]
+        },
+        {
+            "type": "shell",
+            "label": "copyfiles",
+            "command": "cp",
+            "args": [
+                "-force",
+                "-r",
+                "${workspaceFolder}/_WorkDir/*",
+                "F:/Program Files/NXOPEN"
+            ],
+            "problemMatcher": [
+                "$go"
+            ]
+        },
+        {
+            "type": "shell",
+            "label": "genCmpjson",
+            "command": "vs_export.exe",
+            "args": [
+                "-s",
+                "build/CatiaTest.sln",
+                "-c",
+                "Debug|Win32",
+            ],
+            "problemMatcher": [
+                "$go"
+            ]
+        }
+    ]
+}
