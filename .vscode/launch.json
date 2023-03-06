@@ -8,12 +8,51 @@
             "type": "cppvsdbg",
             "request": "launch",
             "preLaunchTask": "build",
-            "name": "Debug executable 'clash-cli'",
+            "name": "windows Debug executable 'clash-cli'",
             "program": "${workspaceRoot}/target/debug/clash-cli.exe",
             "args": [
                 "profiles",
             ],
             "cwd": "${workspaceFolder}"
         },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'clash-cli'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=clash-cli",
+                    "--package=clash-cli"
+                ],
+                "filter": {
+                    "name": "clash-cli",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "profiles",
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'clash-cli'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=clash-cli",
+                    "--package=clash-cli"
+                ],
+                "filter": {
+                    "name": "clash-cli",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
     ]
 }

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use hyper::{Body, Client, Method, Uri};
-use std::{ptr::null, str};
+use std::{ptr::null, str, string, path::Path};
+use platform_dirs::{AppDirs};
 
 #[tokio::main]
 async fn main() {
@@ -23,6 +24,7 @@ async fn main() {
 
 async fn get_usable_prof() -> Result<()> {
     let client = Client::new();
+    let config_path=get_config_path();
     let req = hyper::Request::builder()
         .method(Method::GET)
         .uri("http://localhost:60881/")
@@ -41,4 +43,23 @@ async fn get_usable_prof() -> Result<()> {
     let content = str::from_utf8(buf.as_ref())?;
     println!("{}", content);
     Ok(())
+}
+
+fn get_config_path()->String{
+    let excute_file=std::env::args().nth(0).expect("msg");
+    let excute_path=Path::new(&excute_file);
+    let mut config_file=excute_path.parent().unwrap().join("config.yaml");
+    if(config_file.is_file()==false)
+    {
+        let file1=config_file.as_path();
+        let user_dir = AppDirs::new(Some("clash"),false).unwrap();
+        let config_dir=user_dir.config_dir.as_path();
+        config_file=config_dir.join("config.yaml");
+        let file1=config_file.as_path();
+        if !config_file.is_file()
+        {
+            return "".to_string();
+        }
+    }
+    return "".to_string();
 }
