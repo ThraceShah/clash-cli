@@ -5,17 +5,6 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "cppvsdbg",
-            "request": "launch",
-            "preLaunchTask": "build",
-            "name": "windows Debug executable 'clash-cli'",
-            "program": "${workspaceRoot}/target/debug/clash-cli.exe",
-            "args": [
-                "profiles",
-            ],
-            "cwd": "${workspaceFolder}"
-        },
-        {
             "type": "lldb",
             "request": "launch",
             "name": "Debug executable 'clash-cli'",
@@ -30,6 +19,17 @@
                     "kind": "bin"
                 }
             },
+            "args": [
+                "profiles",
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "cppvsdbg",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "name": "windows Debug executable 'clash-cli'",
+            "program": "${workspaceRoot}/target/debug/clash-cli.exe",
             "args": [
                 "profiles",
             ],

@@ -1,7 +1,14 @@
 use anyhow::Result;
 use hyper::{Body, Client, Method, Uri};
-use std::{ptr::null, str, string, path::Path};
-use platform_dirs::{AppDirs};
+use platform_dirs::AppDirs;
+use serde::{Deserialize, Serialize};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+    process::exit,
+    ptr::{null, null_mut},
+    str,
+};
 
 #[tokio::main]
 async fn main() {
@@ -24,14 +31,13 @@ async fn main() {
 
 async fn get_usable_prof() -> Result<()> {
     let client = Client::new();
-    let config_path=get_config_path();
+    let config_path = get_config_path();
+    let config = get_clash_config(config_path);
+    let uri = format!("http://{}", config.external_controller);
     let req = hyper::Request::builder()
         .method(Method::GET)
-        .uri("http://localhost:60881/")
-        .header(
-            "Authorization",
-            "Bearer 9c59d9fd-1506-4643-96d2-3180adfd6b2a",
-        )
+        .uri(uri)
+        .header("Authorization", config.secret)
         .body(Body::default())
         .expect("msg");
     let mut res = client.request(req).await?;
@@ -45,21 +51,38 @@ async fn get_usable_prof() -> Result<()> {
     Ok(())
 }
 
-fn get_config_path()->String{
-    let excute_file=std::env::args().nth(0).expect("msg");
-    let excute_path=Path::new(&excute_file);
-    let mut config_file=excute_path.parent().unwrap().join("config.yaml");
-    if(config_file.is_file()==false)
-    {
-        let file1=config_file.as_path();
-        let user_dir = AppDirs::new(Some("clash"),false).unwrap();
-        let config_dir=user_dir.config_dir.as_path();
-        config_file=config_dir.join("config.yaml");
-        let file1=config_file.as_path();
-        if !config_file.is_file()
-        {
-            return "".to_string();
+fn get_config_path() -> PathBuf {
+    let excute_file = std::env::args().nth(0).expect("msg");
+    let excute_path = Path::new(&excute_file);
+    let mut config_file = excute_path.parent().unwrap().join("config.yaml");
+    match config_file.is_file() {
+        false => {
+            let user_dir = AppDirs::new(Some("clash"), false).unwrap();
+            let config_dir = user_dir.config_dir.as_path();
+            config_file = config_dir.join("config.yaml");
+            if !config_file.is_file() {
+                println!("config.yaml not found");
+                exit(0x0100);
+            }
         }
+        true => todo!(),
     }
-    return "".to_string();
+    return config_file;
+}
+
+/// 定义 User 类型
+#[derive(Debug, Serialize, Deserialize)]
+struct ClashConfig {
+    #[serde(alias = "external-controller")]
+    external_controller: String,
+    secret: String,
+}
+
+fn get_clash_config(path: PathBuf) -> ClashConfig {
+    let mut yaml_str = String::new();
+    let mut file = std::fs::File::open(path).unwrap();
+    file.read_to_string(&mut yaml_str).unwrap();
+    let config: ClashConfig =
+        serde_yaml::from_str(yaml_str.as_str()).expect("app.yaml read failed!");
+    return config;
 }
