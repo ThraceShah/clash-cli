@@ -1,12 +1,12 @@
 use anyhow::Result;
-use hyper::{Body, Client, Method, Uri};
+use hyper::{Body, Client, Method};
 use platform_dirs::AppDirs;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value};
 use std::{
     io::Read,
     path::{Path, PathBuf},
     process::exit,
-    ptr::{null, null_mut},
     str,
 };
 
@@ -17,8 +17,26 @@ async fn main() {
         2 => {
             let arg = args[1].as_str();
             match arg {
-                "profiles" => {
-                    get_usable_prof().await.expect("msg");
+                "proxies" => {
+                    get_nodes().await.expect("msg");
+                }
+                _ => {}
+            }
+        }
+        3 => {
+            let arg = args[1].as_str();
+            match arg {
+                "get" => {
+                    get_api(args[2].as_str()).await.expect("msg");
+                }
+                _ => {}
+            }
+        }
+        4 => {
+            let arg = args[1].as_str();
+            match arg {
+                "put" => {
+                    put_api(args[2].as_str(),args[3].as_str()).await.expect("msg");
                 }
                 _ => {}
             }
@@ -29,15 +47,50 @@ async fn main() {
     }
 }
 
-async fn get_usable_prof() -> Result<()> {
+async fn get_nodes()-> Result<String>{
+    let proxies_str=get_api("proxies").await?;
+    let proxies=read_json(proxies_str.as_str());
+    for pair in proxies.proxies {
+        let key=pair.0;
+        let v=pair.1;
+    }
+    Ok("".to_string())
+}
+
+async fn get_api(api: &str) -> Result<String> {
     let client = Client::new();
     let config_path = get_config_path();
-    let config = get_clash_config(config_path);
-    let uri = format!("http://{}", config.external_controller);
+    let config = parse_clash_config(config_path);
+    let uri = format!("http://{}/{}", config.external_controller, api);
+    let secret = format!("Bearer {}", config.secret);
     let req = hyper::Request::builder()
         .method(Method::GET)
         .uri(uri)
-        .header("Authorization", config.secret)
+        .header("Authorization", secret)
+        .body(Body::default())
+        .expect("msg");
+    let mut res = client.request(req).await?;
+    if !res.status().is_success() {
+        return Err(anyhow::format_err!("{}", res.status()));
+    }
+    let body = res.body_mut();
+    let buf = hyper::body::to_bytes(body).await?;
+    let content = str::from_utf8(buf.as_ref())?;
+    println!("{}", content);
+    let r=content.to_string();
+    Ok(r)
+}
+
+async fn put_api(api: &str,param:&str) -> Result<()> {
+    let client = Client::new();
+    let config_path = get_config_path();
+    let config = parse_clash_config(config_path);
+    let uri = format!("http://{}/{}", config.external_controller, api);
+    let secret = format!("Bearer {}", config.secret);
+    let req = hyper::Request::builder()
+        .method(Method::PUT)
+        .uri(uri)
+        .header("Authorization", format!("Bearer {}", secret))
         .body(Body::default())
         .expect("msg");
     let mut res = client.request(req).await?;
@@ -70,7 +123,6 @@ fn get_config_path() -> PathBuf {
     return config_file;
 }
 
-/// 定义 User 类型
 #[derive(Debug, Serialize, Deserialize)]
 struct ClashConfig {
     #[serde(alias = "external-controller")]
@@ -78,11 +130,39 @@ struct ClashConfig {
     secret: String,
 }
 
-fn get_clash_config(path: PathBuf) -> ClashConfig {
+fn parse_clash_config(path: PathBuf) -> ClashConfig {
     let mut yaml_str = String::new();
     let mut file = std::fs::File::open(path).unwrap();
     file.read_to_string(&mut yaml_str).unwrap();
     let config: ClashConfig =
-        serde_yaml::from_str(yaml_str.as_str()).expect("app.yaml read failed!");
+        serde_yaml::from_str(yaml_str.as_str()).expect("config.yaml read failed!");
     return config;
+}
+
+fn read_json(raw_json:&str) -> Proxies {
+    let parsed: Proxies = serde_json::from_str(raw_json).unwrap();
+    return parsed
+}
+
+//定义一个结构体，表示JSON数据中的每一项
+#[derive(Serialize, Deserialize)]
+struct Proxy {
+    history: Vec<History>,
+    name: String,
+    #[serde(rename = "type")]
+    proxy_type: String,
+    udp: bool,
+}
+
+//定义一个结构体，表示history中的每一项
+#[derive(Serialize, Deserialize)]
+struct History {
+    time: String,
+    delay: i32,
+}
+
+//定义一个结构体，表示proxies中的每一项
+#[derive(Serialize, Deserialize)]
+struct Proxies {
+    proxies: std::collections::HashMap<String, Proxy>,
 }

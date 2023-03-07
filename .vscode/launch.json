@@ -20,7 +20,8 @@
                 }
             },
             "args": [
-                "profiles",
+                // "put",
+                "proxies",
             ],
             "cwd": "${workspaceFolder}"
         },
@@ -31,7 +32,8 @@
             "name": "windows Debug executable 'clash-cli'",
             "program": "${workspaceRoot}/target/debug/clash-cli.exe",
             "args": [
-                "profiles",
+                "get",
+                "proxies/专线 香港 03",
             ],
             "cwd": "${workspaceFolder}"
         },
