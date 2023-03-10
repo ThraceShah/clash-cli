@@ -2,9 +2,10 @@ use anyhow::Result;
 use hyper::{Body, Client, Method};
 use platform_dirs::AppDirs;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value};
+use serde_json::json;
 use std::{
-    io::Read,
+    collections::HashMap,
+    io::{self, Read},
     path::{Path, PathBuf},
     process::exit,
     str,
@@ -14,6 +15,9 @@ use std::{
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.len() {
+        1 => {
+            get_nodes().await.expect("msg");
+        }
         2 => {
             let arg = args[1].as_str();
             match arg {
@@ -27,7 +31,8 @@ async fn main() {
             let arg = args[1].as_str();
             match arg {
                 "get" => {
-                    get_api(args[2].as_str()).await.expect("msg");
+                    let msg = get_api(args[2].as_str()).await.expect("msg");
+                    println!("{}", msg);
                 }
                 _ => {}
             }
@@ -36,7 +41,9 @@ async fn main() {
             let arg = args[1].as_str();
             match arg {
                 "put" => {
-                    put_api(args[2].as_str(),args[3].as_str()).await.expect("msg");
+                    put_api(args[2].as_str(), args[3].as_str())
+                        .await
+                        .expect("msg");
                 }
                 _ => {}
             }
@@ -47,14 +54,110 @@ async fn main() {
     }
 }
 
-async fn get_nodes()-> Result<String>{
-    let proxies_str=get_api("proxies").await?;
-    let proxies=read_json(proxies_str.as_str());
-    for pair in proxies.proxies {
-        let key=pair.0;
-        let v=pair.1;
+async fn get_nodes() -> Result<String> {
+    let proxies_str = get_api("proxies").await?;
+    let mut proxies: Proxies = serde_json::from_str(proxies_str.as_str()).unwrap();
+    let mut auto_names = Vec::new();
+    let mut sel_names = Vec::new();
+    for pair in &mut proxies.proxies {
+        pair.1.get_history_average_delay();
+        match pair.1.proxy_type.as_str() {
+            "Selector" => {
+                sel_names.push(pair.1.name.clone());
+            }
+            "URLTest" => {
+                auto_names.push(pair.1.name.clone());
+            }
+            _ => {}
+        }
     }
+    auto_names.sort();
+    // let auto_groups = create_groups(&auto_names, &proxies);
+    sel_names.sort();
+    let sel_groups = create_groups(&sel_names, &proxies);
+    print_selectors_info(&sel_groups).await;
     Ok("".to_string())
+}
+
+async fn print_selectors_info(groups: &Vec<(String, Vec<Proxy>)>) {
+    println!("请输入要选中的节点序号:");
+    let mut index = 0;
+    for pair in groups {
+        println!("{}:{}", index, pair.0);
+        index = index + 1;
+    }
+    println!("其他:退出程序!");
+    let mut num_str = String::new();
+    io::stdin().read_line(&mut num_str).expect("not a num");
+    match num_str.trim().parse::<usize>() {
+        Ok(i) => {
+            if i >= groups.len() {
+                exit(0x0100);
+            }
+            print_proxy_info(groups[i].0.to_string(), &groups[i].1).await;
+        }
+        Err(..) => {
+            exit(0x0100);
+        }
+    }
+}
+
+async fn print_proxy_info(selector: String, proxys: &Vec<Proxy>) {
+    println!("请输入要选中的代理序号:");
+    let mut index = 0;
+    let mut usable = Vec::new();
+    for proxy in proxys {
+        if proxy.ave_delay > 2000 {
+            continue;
+        }
+        usable.push(proxy.clone());
+        println!("{}:{},delay:{}ms", index, proxy.name, proxy.ave_delay);
+        index = index + 1;
+    }
+    println!("其他:退出程序!");
+    let mut num_str = String::new();
+    io::stdin().read_line(&mut num_str).expect("not a num");
+    match num_str.trim().parse::<usize>() {
+        Ok(i) => {
+            if i >= usable.len() {
+                exit(0x0100);
+            }
+            let api = format!("proxies/{}", selector);
+            let result = put_api(api.as_str(), usable[i].name.as_str()).await;
+            match result {
+                Ok(..) => {}
+                Err(msg) => {
+                    print!("{}", msg);
+                }
+            }
+        }
+        Err(..) => {
+            exit(0x0100);
+        }
+    }
+}
+
+fn create_groups(group_names: &Vec<String>, proxies: &Proxies) -> Vec<(String, Vec<Proxy>)> {
+    let mut result: Vec<(String, Vec<Proxy>)> = Vec::new();
+    for group_name in group_names {
+        let root = &proxies.proxies.get(group_name).unwrap();
+        let group = add_proxy_to_group(&root.all, proxies);
+        result.push((group_name.to_string(), group));
+    }
+    result
+}
+
+fn add_proxy_to_group(group_sub_names: &Vec<String>, proxies: &Proxies) -> Vec<Proxy> {
+    let mut result: Vec<Proxy> = Vec::new();
+    for name in group_sub_names {
+        for pair in &proxies.proxies {
+            if pair.1.name == *name {
+                result.push(pair.1.clone());
+            }
+        }
+    }
+    result.sort_by(|a, b| b.ave_delay.cmp(&a.ave_delay));
+    result
 }
 
 async fn get_api(api: &str) -> Result<String> {
@@ -76,31 +179,30 @@ async fn get_api(api: &str) -> Result<String> {
     let body = res.body_mut();
     let buf = hyper::body::to_bytes(body).await?;
     let content = str::from_utf8(buf.as_ref())?;
-    println!("{}", content);
-    let r=content.to_string();
+    // println!("{}", content);
+    let r = content.to_string();
     Ok(r)
 }
 
-async fn put_api(api: &str,param:&str) -> Result<()> {
+async fn put_api(api: &str, param: &str) -> Result<()> {
     let client = Client::new();
     let config_path = get_config_path();
     let config = parse_clash_config(config_path);
     let uri = format!("http://{}/{}", config.external_controller, api);
     let secret = format!("Bearer {}", config.secret);
+    let json_body = json!({ "name": param });
+    let json_str = json_body.to_string();
     let req = hyper::Request::builder()
         .method(Method::PUT)
         .uri(uri)
         .header("Authorization", format!("Bearer {}", secret))
-        .body(Body::default())
+        .body(Body::from(json_str))
         .expect("msg");
-    let mut res = client.request(req).await?;
+    let res = client.request(req).await?;
     if !res.status().is_success() {
         return Err(anyhow::format_err!("{}", res.status()));
     }
-    let body = res.body_mut();
-    let buf = hyper::body::to_bytes(body).await?;
-    let content = str::from_utf8(buf.as_ref())?;
-    println!("{}", content);
+    println!("修改成功!");
     Ok(())
 }
 
@@ -139,30 +241,54 @@ fn parse_clash_config(path: PathBuf) -> ClashConfig {
     return config;
 }
 
-fn read_json(raw_json:&str) -> Proxies {
-    let parsed: Proxies = serde_json::from_str(raw_json).unwrap();
-    return parsed
-}
-
 //定义一个结构体，表示JSON数据中的每一项
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct Proxy {
+    #[serde(default)]
+    all: Vec<String>,
+    #[serde(default)]
     history: Vec<History>,
+    #[serde(default)]
     name: String,
-    #[serde(rename = "type")]
+    #[serde(rename = "type", default)]
     proxy_type: String,
+    #[serde(default)]
     udp: bool,
+    #[serde(default)]
+    ave_delay: usize,
+}
+impl Proxy {
+    fn get_history_average_delay(self: &mut Proxy) -> usize {
+        let mut result = 0;
+        if self.history.len() == 0 {
+            if self.proxy_type == "URLTest" {
+                self.ave_delay = 400;
+                return 400;
+            }
+            self.ave_delay = 10000;
+            return 10000;
+        }
+        for item in &self.history {
+            if item.delay == 0 {
+                result = result + 10000;
+            } else {
+                result = result + item.delay;
+            }
+        }
+        self.ave_delay = result / self.history.len();
+        self.ave_delay
+    }
 }
 
 //定义一个结构体，表示history中的每一项
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct History {
     time: String,
-    delay: i32,
+    delay: usize,
 }
 
 //定义一个结构体，表示proxies中的每一项
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct Proxies {
-    proxies: std::collections::HashMap<String, Proxy>,
+    proxies: HashMap<String, Proxy>,
 }
