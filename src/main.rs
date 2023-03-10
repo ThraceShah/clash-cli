@@ -1,5 +1,6 @@
 use anyhow::Result;
 use hyper::{Body, Client, Method};
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use platform_dirs::AppDirs;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -41,7 +42,7 @@ async fn main() {
             let arg = args[1].as_str();
             match arg {
                 "put" => {
-                    put_api(args[2].as_str(), args[3].as_str())
+                    put_api(args[2].as_str(), args[3].as_str(),"")
                         .await
                         .expect("msg");
                 }
@@ -122,8 +123,9 @@ async fn print_proxy_info(selector: String, proxys: &Vec<Proxy>) {
             if i >= usable.len() {
                 exit(0x0100);
             }
-            let api = format!("proxies/{}", selector);
-            let result = put_api(api.as_str(), usable[i].name.as_str()).await;
+            // let api = format!("proxies/{}", selector);
+            // let result = put_api(api.as_str(), usable[i].name.as_str()).await;
+            let result = put_api("proxies",selector.as_str(), usable[i].name.as_str()).await;
             match result {
                 Ok(..) => {}
                 Err(msg) => {
@@ -163,8 +165,12 @@ fn add_proxy_to_group(group_sub_names: &Vec<String>, proxies: &Proxies) -> Vec<P
 async fn get_api(api: &str) -> Result<String> {
     let client = Client::new();
     let config_path = get_config_path();
-    let config = parse_clash_config(config_path);
-    let uri = format!("http://{}/{}", config.external_controller, api);
+    let mut config = parse_clash_config(config_path);
+    if config.external_controller.starts_with("0.0.0.0") {
+        config.external_controller = config.external_controller.replace("0.0.0.0", "127.0.0.1");
+    }
+    let request = utf8_percent_encode(api, NON_ALPHANUMERIC).to_string();
+    let uri = format!("http://{}/{}", config.external_controller, request);
     let secret = format!("Bearer {}", config.secret);
     let req = hyper::Request::builder()
         .method(Method::GET)
@@ -184,11 +190,41 @@ async fn get_api(api: &str) -> Result<String> {
     Ok(r)
 }
 
-async fn put_api(api: &str, param: &str) -> Result<()> {
+// async fn put_api(api: &str, param: &str) -> Result<()> {
+//     let client = Client::new();
+//     let config_path = get_config_path();
+//     let mut config = parse_clash_config(config_path);
+//     if config.external_controller.starts_with("0.0.0.0") {
+//         config.external_controller = config.external_controller.replace("0.0.0.0", "127.0.0.1");
+//     }
+//     let request = utf8_percent_encode(api, NON_ALPHANUMERIC).to_string();
+//     let uri = format!("http://{}/{}", config.external_controller, request);
+//     let secret = format!("Bearer {}", config.secret);
+//     let json_body = json!({ "name": param });
+//     let json_str = json_body.to_string();
+//     let req = hyper::Request::builder()
+//         .method(Method::PUT)
+//         .uri(uri)
+//         .header("Authorization", format!("Bearer {}", secret))
+//         .body(Body::from(json_str))
+//         .expect("msg");
+//     let res = client.request(req).await?;
+//     if !res.status().is_success() {
+//         return Err(anyhow::format_err!("{}", res.status()));
+//     }
+//     println!("修改成功!");
+//     Ok(())
+// }
+
+async fn put_api(api: &str,request:&str, param: &str) -> Result<()> {
     let client = Client::new();
     let config_path = get_config_path();
-    let config = parse_clash_config(config_path);
-    let uri = format!("http://{}/{}", config.external_controller, api);
+    let mut config = parse_clash_config(config_path);
+    if config.external_controller.starts_with("0.0.0.0") {
+        config.external_controller = config.external_controller.replace("0.0.0.0", "127.0.0.1");
+    }
+    let new_request = utf8_percent_encode(request, NON_ALPHANUMERIC).to_string();
+    let uri = format!("http://{}/{}/{}", config.external_controller,api, new_request);
     let secret = format!("Bearer {}", config.secret);
     let json_body = json!({ "name": param });
     let json_str = json_body.to_string();
@@ -206,6 +242,7 @@ async fn put_api(api: &str, param: &str) -> Result<()> {
     Ok(())
 }
 
+
 fn get_config_path() -> PathBuf {
     let excute_file = std::env::args().nth(0).expect("msg");
     let excute_path = Path::new(&excute_file);
@@ -213,14 +250,20 @@ fn get_config_path() -> PathBuf {
     match config_file.is_file() {
         false => {
             let user_dir = AppDirs::new(Some("clash"), false).unwrap();
-            let config_dir = user_dir.config_dir.as_path();
-            config_file = config_dir.join("config.yaml");
+            // let str = user_dir.config_dir.to_str();
+            let mut config_dir = user_dir.config_dir.parent().unwrap();
+            if config_dir.ends_with("Roaming/") {
+                config_dir = config_dir.parent().unwrap().parent().unwrap();
+            } else {
+                config_dir = config_dir.parent().unwrap();
+            }
+            config_file = config_dir.join(".config").join("clash").join("config.yaml");
             if !config_file.is_file() {
                 println!("config.yaml not found");
                 exit(0x0100);
             }
         }
-        true => todo!(),
+        true => {}
     }
     return config_file;
 }

@@ -54,6 +54,7 @@ dependencies = [
  "http",
  "hyper",
  "hyper-tls",
+ "percent-encoding",
  "platform-dirs",
  "serde",
  "serde_json",
@@ -501,6 +502,12 @@ dependencies = [
  "smallvec",
  "windows-sys 0.45.0",
 ]
+
+[[package]]
+name = "percent-encoding"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "478c572c3d73181ff3c2539045f6eb99e5491218eae919370993b890cdbdd98e"
 
 [[package]]
 name = "pin-project-lite"

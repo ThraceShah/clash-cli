@@ -32,8 +32,7 @@
             "name": "windows Debug executable 'clash-cli'",
             "program": "${workspaceRoot}/target/debug/clash-cli.exe",
             "args": [
-                "get",
-                "proxies/专线 香港 03",
+                "proxies",
             ],
             "cwd": "${workspaceFolder}"
         },
@@ -55,6 +54,11 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "cppvsdbg",
+            "request": "attach",
+            "name": "attch"
         }
     ]
 }
