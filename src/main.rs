@@ -1,12 +1,13 @@
+mod config;
+
 use anyhow::Result;
+use config::{ClashConfig, Proxies, Proxy};
 use hyper::{Body, Client, Method};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use platform_dirs::AppDirs;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    collections::HashMap,
-    io::{self, Read},
+    io::{self},
     path::{Path, PathBuf},
     process::exit,
     str,
@@ -42,7 +43,7 @@ async fn main() {
             let arg = args[1].as_str();
             match arg {
                 "put" => {
-                    put_api(args[2].as_str(), args[3].as_str(),"")
+                    put_api(args[2].as_str(), args[3].as_str())
                         .await
                         .expect("msg");
                 }
@@ -55,6 +56,7 @@ async fn main() {
     }
 }
 
+//获取所有可用的代理分组，并和用户交互
 async fn get_nodes() -> Result<String> {
     let proxies_str = get_api("proxies").await?;
     let mut proxies: Proxies = serde_json::from_str(proxies_str.as_str()).unwrap();
@@ -80,6 +82,7 @@ async fn get_nodes() -> Result<String> {
     Ok("".to_string())
 }
 
+//打印selector组的信息，并和用户交互
 async fn print_selectors_info(groups: &Vec<(String, Vec<Proxy>)>) {
     println!("请输入要选中的节点序号:");
     let mut index = 0;
@@ -103,6 +106,7 @@ async fn print_selectors_info(groups: &Vec<(String, Vec<Proxy>)>) {
     }
 }
 
+//打印代理信息，并和用户交互
 async fn print_proxy_info(selector: String, proxys: &Vec<Proxy>) {
     println!("请输入要选中的代理序号:");
     let mut index = 0;
@@ -123,9 +127,9 @@ async fn print_proxy_info(selector: String, proxys: &Vec<Proxy>) {
             if i >= usable.len() {
                 exit(0x0100);
             }
-            // let api = format!("proxies/{}", selector);
-            // let result = put_api(api.as_str(), usable[i].name.as_str()).await;
-            let result = put_api("proxies",selector.as_str(), usable[i].name.as_str()).await;
+            let api = format!("proxies/{}", selector);
+            let result = put_api(api.as_str(), usable[i].name.as_str()).await;
+            // let result = put_api("proxies",selector.as_str(), usable[i].name.as_str()).await;
             match result {
                 Ok(..) => {}
                 Err(msg) => {
@@ -139,6 +143,7 @@ async fn print_proxy_info(selector: String, proxys: &Vec<Proxy>) {
     }
 }
 
+//根据selector的名字创建对应的多个组
 fn create_groups(group_names: &Vec<String>, proxies: &Proxies) -> Vec<(String, Vec<Proxy>)> {
     let mut result: Vec<(String, Vec<Proxy>)> = Vec::new();
     for group_name in group_names {
@@ -149,6 +154,7 @@ fn create_groups(group_names: &Vec<String>, proxies: &Proxies) -> Vec<(String, V
     result
 }
 
+//把代理节点添加到一个selector组里面
 fn add_proxy_to_group(group_sub_names: &Vec<String>, proxies: &Proxies) -> Vec<Proxy> {
     let mut result: Vec<Proxy> = Vec::new();
     for name in group_sub_names {
@@ -162,10 +168,11 @@ fn add_proxy_to_group(group_sub_names: &Vec<String>, proxies: &Proxies) -> Vec<P
     result
 }
 
+//对get请求的封装
 async fn get_api(api: &str) -> Result<String> {
     let client = Client::new();
     let config_path = get_config_path();
-    let mut config = parse_clash_config(config_path);
+    let mut config = ClashConfig::parse_clash_config(config_path);
     if config.external_controller.starts_with("0.0.0.0") {
         config.external_controller = config.external_controller.replace("0.0.0.0", "127.0.0.1");
     }
@@ -190,41 +197,21 @@ async fn get_api(api: &str) -> Result<String> {
     Ok(r)
 }
 
-// async fn put_api(api: &str, param: &str) -> Result<()> {
-//     let client = Client::new();
-//     let config_path = get_config_path();
-//     let mut config = parse_clash_config(config_path);
-//     if config.external_controller.starts_with("0.0.0.0") {
-//         config.external_controller = config.external_controller.replace("0.0.0.0", "127.0.0.1");
-//     }
-//     let request = utf8_percent_encode(api, NON_ALPHANUMERIC).to_string();
-//     let uri = format!("http://{}/{}", config.external_controller, request);
-//     let secret = format!("Bearer {}", config.secret);
-//     let json_body = json!({ "name": param });
-//     let json_str = json_body.to_string();
-//     let req = hyper::Request::builder()
-//         .method(Method::PUT)
-//         .uri(uri)
-//         .header("Authorization", format!("Bearer {}", secret))
-//         .body(Body::from(json_str))
-//         .expect("msg");
-//     let res = client.request(req).await?;
-//     if !res.status().is_success() {
-//         return Err(anyhow::format_err!("{}", res.status()));
-//     }
-//     println!("修改成功!");
-//     Ok(())
-// }
-
-async fn put_api(api: &str,request:&str, param: &str) -> Result<()> {
+//对put 请求的封装
+async fn put_api(api: &str, param: &str) -> Result<()> {
     let client = Client::new();
     let config_path = get_config_path();
-    let mut config = parse_clash_config(config_path);
+    let mut config = ClashConfig::parse_clash_config(config_path);
     if config.external_controller.starts_with("0.0.0.0") {
         config.external_controller = config.external_controller.replace("0.0.0.0", "127.0.0.1");
     }
-    let new_request = utf8_percent_encode(request, NON_ALPHANUMERIC).to_string();
-    let uri = format!("http://{}/{}/{}", config.external_controller,api, new_request);
+    let parts: Vec<&str> = api.split('/').collect();
+    let request = parts
+        .iter()
+        .map(|s| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string())
+        .collect::<Vec<String>>()
+        .join("/");
+    let uri = format!("http://{}/{}", config.external_controller, request);
     let secret = format!("Bearer {}", config.secret);
     let json_body = json!({ "name": param });
     let json_str = json_body.to_string();
@@ -242,7 +229,7 @@ async fn put_api(api: &str,request:&str, param: &str) -> Result<()> {
     Ok(())
 }
 
-
+//获取clash的配置文件，依次查找程序运行目录和~/.config/clash目录
 fn get_config_path() -> PathBuf {
     let excute_file = std::env::args().nth(0).expect("msg");
     let excute_path = Path::new(&excute_file);
@@ -266,72 +253,4 @@ fn get_config_path() -> PathBuf {
         true => {}
     }
     return config_file;
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ClashConfig {
-    #[serde(alias = "external-controller")]
-    external_controller: String,
-    secret: String,
-}
-
-fn parse_clash_config(path: PathBuf) -> ClashConfig {
-    let mut yaml_str = String::new();
-    let mut file = std::fs::File::open(path).unwrap();
-    file.read_to_string(&mut yaml_str).unwrap();
-    let config: ClashConfig =
-        serde_yaml::from_str(yaml_str.as_str()).expect("config.yaml read failed!");
-    return config;
-}
-
-//定义一个结构体，表示JSON数据中的每一项
-#[derive(Serialize, Deserialize, Clone)]
-struct Proxy {
-    #[serde(default)]
-    all: Vec<String>,
-    #[serde(default)]
-    history: Vec<History>,
-    #[serde(default)]
-    name: String,
-    #[serde(rename = "type", default)]
-    proxy_type: String,
-    #[serde(default)]
-    udp: bool,
-    #[serde(default)]
-    ave_delay: usize,
-}
-impl Proxy {
-    fn get_history_average_delay(self: &mut Proxy) -> usize {
-        let mut result = 0;
-        if self.history.len() == 0 {
-            if self.proxy_type == "URLTest" {
-                self.ave_delay = 400;
-                return 400;
-            }
-            self.ave_delay = 10000;
-            return 10000;
-        }
-        for item in &self.history {
-            if item.delay == 0 {
-                result = result + 10000;
-            } else {
-                result = result + item.delay;
-            }
-        }
-        self.ave_delay = result / self.history.len();
-        self.ave_delay
-    }
-}
-
-//定义一个结构体，表示history中的每一项
-#[derive(Serialize, Deserialize, Clone)]
-struct History {
-    time: String,
-    delay: usize,
-}
-
-//定义一个结构体，表示proxies中的每一项
-#[derive(Serialize, Deserialize, Clone)]
-struct Proxies {
-    proxies: HashMap<String, Proxy>,
 }
