@@ -58,6 +58,28 @@ impl Proxy {
         self.ave_delay = result / self.history.len();
         self.ave_delay
     }
+
+    pub fn get_history_mean_delay(self: &mut Proxy) -> usize {
+        match self.history.len() {
+            0 => match self.proxy_type.as_str() {
+                "URLTest" => self.ave_delay = 400,
+                "Direct" => self.ave_delay = 0,
+                "Reject" => self.ave_delay = 0,
+                _ => self.ave_delay = 10000,
+            },
+            _ => {
+                let mut result = 0;
+                for item in &self.history {
+                    match item.delay {
+                        0 => result = result + 10000,
+                        _ => result = result + item.delay,
+                    }
+                }
+                self.ave_delay = result / self.history.len();
+            }
+        }
+        return self.ave_delay;
+    }
 }
 
 //定义一个结构体，表示history中的每一项
@@ -65,10 +87,28 @@ impl Proxy {
 pub struct History {
     pub time: String,
     pub delay: usize,
+    #[serde(alias = "meanDelay", default)]
+    pub mean_delay: usize,
 }
 
 //定义一个结构体，表示proxies中的每一项
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Proxies {
     pub proxies: HashMap<String, Proxy>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Provider {
+    pub name: String,
+    #[serde(default)]
+    pub proxies: Vec<Proxy>,
+    #[serde(alias = "type")]
+    pub provider_type: String,
+    #[serde(alias = "vehicleType", default)]
+    pub vehicle_type: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Providers {
+    pub providers: HashMap<String, Provider>,
 }

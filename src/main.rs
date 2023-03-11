@@ -1,7 +1,7 @@
 mod config;
 
 use anyhow::Result;
-use config::{ClashConfig, Proxies, Proxy};
+use config::{ClashConfig, Providers, Proxies, Proxy};
 use hyper::{Body, Client, Method};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use platform_dirs::AppDirs;
@@ -13,12 +13,15 @@ use std::{
     str,
 };
 
+use crate::config::Provider;
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.len() {
         1 => {
-            get_nodes().await.expect("msg");
+            // get_nodes().await.expect("msg");
+            get_providers().await.expect("msg");
         }
         2 => {
             let arg = args[1].as_str();
@@ -54,6 +57,49 @@ async fn main() {
             println!("help");
         }
     }
+}
+
+async fn get_providers() -> Result<String> {
+    let proxies_str = get_api("providers/proxies").await?;
+    let providers: Providers = serde_json::from_str(proxies_str.as_str()).unwrap();
+    let mut groups: Vec<Provider> = providers.providers.into_values().collect();
+    groups.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut index = 0;
+    for provider in &groups {
+        println!("{}:{}", index, provider.name);
+        index = index + 1;
+    }
+    println!("其他:退出程序!");
+    let mut num_str = String::new();
+    io::stdin().read_line(&mut num_str).expect("not a num");
+    match num_str.trim().parse::<usize>() {
+        Ok(i) => {
+            if i >= groups.len() {
+                exit(0x0100);
+            }
+            let api = format!("providers/proxies/{}", groups[i].name);
+            put_api(api.as_str(), "").await?;
+            let mut selector = groups[i].name.clone();
+            if selector == "default" {
+                selector = String::from("GLOBAL");
+            }
+            else if selector.contains("Auto") {
+                exit(0x0100);
+            }
+            for proxy in &mut groups[i].proxies {
+                proxy.get_history_mean_delay();
+            }
+            groups[i]
+                .proxies
+                .sort_by(|a, b| a.ave_delay.cmp(&b.ave_delay));
+            let api = format!("proxies/{}", selector);
+            print_proxy_info(&api, &groups[i].proxies).await;
+        }
+        Err(..) => {
+            exit(0x0100);
+        }
+    }
+    Ok("".to_string())
 }
 
 //获取所有可用的代理分组，并和用户交互
@@ -98,7 +144,17 @@ async fn print_selectors_info(groups: &Vec<(String, Vec<Proxy>)>) {
             if i >= groups.len() {
                 exit(0x0100);
             }
-            print_proxy_info(groups[i].0.to_string(), &groups[i].1).await;
+            let mut provider = groups[i].0.clone();
+            if provider == "GLOBAL" {
+                provider = String::from("default");
+            }
+            let api = format!("providers/proxies/{}", provider);
+            let r = put_api(api.as_str(), "").await;
+            if r.is_err() {
+                println!("{}", r.err().unwrap())
+            }
+            let api = format!("proxies/{}", &groups[i].0);
+            print_proxy_info(&api, &groups[i].1).await;
         }
         Err(..) => {
             exit(0x0100);
@@ -107,7 +163,7 @@ async fn print_selectors_info(groups: &Vec<(String, Vec<Proxy>)>) {
 }
 
 //打印代理信息，并和用户交互
-async fn print_proxy_info(selector: String, proxys: &Vec<Proxy>) {
+async fn print_proxy_info(api: &str, proxys: &Vec<Proxy>) {
     println!("请输入要选中的代理序号:");
     let mut index = 0;
     let mut usable = Vec::new();
@@ -127,9 +183,7 @@ async fn print_proxy_info(selector: String, proxys: &Vec<Proxy>) {
             if i >= usable.len() {
                 exit(0x0100);
             }
-            let api = format!("proxies/{}", selector);
-            let result = put_api(api.as_str(), usable[i].name.as_str()).await;
-            // let result = put_api("proxies",selector.as_str(), usable[i].name.as_str()).await;
+            let result = put_api(api, usable[i].name.as_str()).await;
             match result {
                 Ok(..) => {}
                 Err(msg) => {
@@ -176,7 +230,12 @@ async fn get_api(api: &str) -> Result<String> {
     if config.external_controller.starts_with("0.0.0.0") {
         config.external_controller = config.external_controller.replace("0.0.0.0", "127.0.0.1");
     }
-    let request = utf8_percent_encode(api, NON_ALPHANUMERIC).to_string();
+    let parts: Vec<&str> = api.split('/').collect();
+    let request = parts
+        .iter()
+        .map(|s| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string())
+        .collect::<Vec<String>>()
+        .join("/");
     let uri = format!("http://{}/{}", config.external_controller, request);
     let secret = format!("Bearer {}", config.secret);
     let req = hyper::Request::builder()
